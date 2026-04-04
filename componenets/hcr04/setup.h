@@ -7,22 +7,16 @@
 
 static const char *TAG = "DISTANCE";
 
-namespace distance
+#ifdef __cplusplus
+extern "C"
 {
-    struct gpioINFO
-    {
-        gpio_num_t trig;
-        gpio_num_t echo;
-        gpio_num_t warning;
-    };
+#endif
 
-    struct handle_t
-    {
-        TimerHandle_t timer1;
-        QueueHandle_t q1;
-    };
+    void hcr04_init(gpio_num_t trig, gpio_num_t echo);
+    float hcr04_get_value_c(gpio_num_t trig, gpio_num_t echo);
+    float hcr04_get_value_f(gpio_num_t trig, gpio_num_t echo);
 
-    void gpioINIT(gpioINFO *gpio);
-    bool measure(gpioINFO *gpio);
-    void displayAndWarning(gpioINFO *gpio);
+#ifdef __cplusplus
 }
+
+#endif

@@ -1,99 +1,97 @@
-#include "hcr04.h"
+#include "setup.h"
 #include "esp_timer.h"
 #include "esp_rom_sys.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-namespace distance
+namespace HCR04
 {
-    handle_t myHandle_t;
-    void warningTask(TimerHandle_t xTimer)
+    class setup
     {
-        gpioINFO *gpio = (gpioINFO *)pvTimerGetTimerID(xTimer);
-        gpio_set_level(gpio->warning, 0);
-    }
+    public:
+        setup(gpio_num_t t, gpio_num_t e) : trig(t), echo(e) {}
 
-    void gpioINIT(gpioINFO *gpio)
-    {
-        if (gpio == nullptr)
+        void Setup()
         {
-            return;
+            gpio_reset_pin(trig);
+            gpio_reset_pin(echo);
+
+            gpio_set_direction(echo, GPIO_MODE_INPUT);
+            gpio_set_direction(trig, GPIO_MODE_OUTPUT);
         }
-        gpio_reset_pin(gpio->trig);
-        gpio_reset_pin(gpio->echo);
-        gpio_reset_pin(gpio->warning);
 
-        gpio_set_direction(gpio->echo, GPIO_MODE_INPUT);
-        gpio_set_direction(gpio->trig, GPIO_MODE_OUTPUT);
-        gpio_set_direction(gpio->warning, GPIO_MODE_OUTPUT);
-        distance::myHandle_t.q1 = xQueueCreate(5, sizeof(float));
-        distance::myHandle_t.timer1 = xTimerCreate("timer for warning", pdMS_TO_TICKS(500), pdTRUE, (void *)gpio, warningTask);
-    }
+    private:
+        gpio_num_t trig;
+        gpio_num_t echo;
+    };
 
-    bool measure(gpioINFO *gpio)
+    class Measure
     {
-        if (gpio == nullptr)
-        {
-            ESP_LOGE(TAG, "Pointer holding gpioINFO is error");
-            return -1;
-        }
-        gpio_set_level(gpio->trig, 1);
-        esp_rom_delay_us(10);
-        gpio_set_level(gpio->trig, 0);
-        esp_rom_delay_us(10);
-        gpio_set_level(gpio->trig, 1);
+    public:
+        Measure(gpio_num_t t, gpio_num_t e) : trig(t), echo(e) {}
 
-        int64_t gpioStart = esp_timer_get_time();
-        while (gpio_get_level(gpio->echo) == 0)
+        float getValue_C()
         {
-            if (esp_timer_get_time() - gpioStart >= 30000)
+
+            gpio_set_level(trig, 0);
+            esp_rom_delay_us(2);
+            gpio_set_level(trig, 1);
+            esp_rom_delay_us(10);
+            gpio_set_level(trig, 0);
+
+            int64_t gpioStart = esp_timer_get_time();
+            while (gpio_get_level(echo) == 0)
             {
-                ESP_LOGE(TAG, "Durantion reach at echo high");
-                return -1;
-            }
-        }
-
-        int64_t echoStart = esp_timer_get_time();
-        while (gpio_get_level(gpio->echo) == 1)
-        {
-            if (esp_timer_get_time() - echoStart >= 30000)
-            {
-                ESP_LOGE(TAG, "Duration reach at echo low");
-                return -1;
-            }
-        }
-
-        int64_t echoEnd = esp_timer_get_time();
-        float res = ((echoEnd - echoStart) * 0.0343) / 2;
-
-        if (xQueueSend(distance::myHandle_t.q1, &res, 0))
-        {
-            return true;
-        }
-        else
-        {
-            return false;
-        }
-    }
-
-    void displayAndWarning(gpioINFO *gpio)
-    {
-        float res = 0;
-        char *text = (char *)malloc(30);
-        if (xQueueReceive(distance::myHandle_t.q1, &res, 0) == pdTRUE)
-        {
-            if (res < 10)
-            {
-                gpio_set_level(gpio->warning, 1);
-                if (xTimerIsTimerActive(distance::myHandle_t.timer1) == pdTRUE)
+                if (esp_timer_get_time() - gpioStart >= 30000)
                 {
-                    xTimerReset(distance::myHandle_t.timer1, 0);
+                    ESP_LOGE(TAG, "Durantion reach at echo high");
+                    return -1;
                 }
-                xTimerStart(distance::myHandle_t.timer1, 0);
             }
-            snprintf(text, 30, "Distance: %.2f cm", res);
-            ESP_LOGI(TAG, "%s", text);
+
+            int64_t echoStart = esp_timer_get_time();
+            while (gpio_get_level(echo) == 1)
+            {
+                if (esp_timer_get_time() - echoStart >= 30000)
+                {
+                    ESP_LOGE(TAG, "Duration reach at echo low");
+                    return -1;
+                }
+            }
+
+            int64_t echoEnd = esp_timer_get_time();
+            float res = ((echoEnd - echoStart) * 0.0343) / 2;
+
+            if (res >= 0)
+            {
+                return res;
+            }
+            else
+            {
+                return -1;
+            }
         }
-        free(text);
-    }
+
+    private:
+        gpio_num_t trig;
+        gpio_num_t echo;
+    };
+};
+
+void hcr04_init(gpio_num_t trig, gpio_num_t echo)
+{
+    HCR04::setup st(trig, echo);
+    st.Setup();
+}
+
+float hcr04_get_value_c(gpio_num_t trig, gpio_num_t echo)
+{
+    HCR04::Measure m(trig, echo);
+    return m.getValue_C();
+}
+
+float hcr04_get_value_f(gpio_num_t trig, gpio_num_t echo)
+{
+    HCR04::Measure m(trig, echo);
+    return (m.getValue_C() * 9 / 5) + 32;
 }
